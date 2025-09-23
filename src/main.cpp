@@ -6,6 +6,8 @@
 #include <chrono>
 #include <cstdint>
 
+const uint32_t SCAN_SECONDS = 5;
+
 void printDeviceInfo(const BluetoothDevice& device, int index) {
     std::cout << "[" << index << "] " << device.name;
     if (device.name.empty()) {
@@ -138,7 +140,7 @@ int main() {
             case 1: {
                 std::cout << "\nStarting device scan..." << std::endl;
                 manager.startDiscovery();
-                manager.scanForDevices(10);
+                manager.scanForDevices(SCAN_SECONDS);
                 manager.stopDiscovery();
                 
                 auto devices = manager.getAllDevices();

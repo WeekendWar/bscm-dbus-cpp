@@ -5,6 +5,15 @@
 #include <algorithm>
 #include <iomanip>
 
+const std::string BLUEZ_SERVICE = "org.bluez";
+const std::string ADAPTER_INTERFACE_1 = "org.bluez.Adapter1";
+const std::string DEVICE_INTERFACE_1 = "org.bluez.Device1";
+const std::string GATT_SERVICE_INTERFACE = "org.bluez.GattService1";
+const std::string GATT_CHARACTERISTIC_INTERFACE = "org.bluez.GattCharacteristic1";
+const std::string PROPERTIES_INTERFACE = "org.freedesktop.DBus.Properties";
+const std::string OBJECT_MANAGER_INTERFACE = "org.freedesktop.DBus.ObjectManager";  
+
+
 BluetoothManager::BluetoothManager() {
 }
 
@@ -13,7 +22,7 @@ BluetoothManager::~BluetoothManager() {
 }
 
 bool BluetoothManager::initialize() {
-    if (!dbus.connect()) {
+    if (!dbus_.connect()) {
         std::cerr << "Failed to connect to D-Bus" << std::endl;
         return false;
     }
@@ -24,14 +33,14 @@ bool BluetoothManager::initialize() {
     }
     
     // Add signal match for property changes and interface additions
-    dbus.addSignalMatch("type='signal',sender='org.bluez'");
+    dbus_.addSignalMatch("type='signal',sender='org.bluez'");
     
-    std::cout << "Bluetooth manager initialized with adapter: " << adapterPath << std::endl;
+    std::cout << "Bluetooth manager initialized with adapter: " << adapterPath_ << std::endl;
     return true;
 }
 
 bool BluetoothManager::findAdapter() {
-    DBusMessage* reply = dbus.callMethod("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
+    DBusMessage* reply = dbus_.callMethod(BLUEZ_SERVICE, "/", OBJECT_MANAGER_INTERFACE, "GetManagedObjects");
     
     if (!reply) {
         return false;
@@ -65,7 +74,7 @@ bool BluetoothManager::findAdapter() {
                 dbus_message_iter_get_basic(&iface_entry_iter, &interface);
                 
                 if (std::string(interface) == "org.bluez.Adapter1") {
-                    adapterPath = std::string(path);
+                    adapterPath_ = std::string(path);
                     dbus_message_unref(reply);
                     return true;
                 }
@@ -82,9 +91,9 @@ bool BluetoothManager::findAdapter() {
 }
 
 bool BluetoothManager::startDiscovery() {
-    if (adapterPath.empty()) return false;
+    if (adapterPath_.empty()) return false;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", adapterPath, "org.bluez.Adapter1", "StartDiscovery");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", adapterPath_, "org.bluez.Adapter1", "StartDiscovery");
     
     if (reply) {
         dbus_message_unref(reply);
@@ -96,9 +105,9 @@ bool BluetoothManager::startDiscovery() {
 }
 
 bool BluetoothManager::stopDiscovery() {
-    if (adapterPath.empty()) return false;
+    if (adapterPath_.empty()) return false;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", adapterPath, "org.bluez.Adapter1", "StopDiscovery");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", adapterPath_, "org.bluez.Adapter1", "StopDiscovery");
     
     if (reply) {
         dbus_message_unref(reply);
@@ -116,16 +125,16 @@ void BluetoothManager::scanForDevices(int timeoutSeconds) {
     auto endTime = startTime + std::chrono::seconds(timeoutSeconds);
     
     while (std::chrono::steady_clock::now() < endTime) {
-        dbus.processMessages(1000);
+        dbus_.processMessages(1000);
         discoverDevices();
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     
-    std::cout << "Scan complete. Found " << devices.size() << " devices." << std::endl;
+    std::cout << "Scan complete. Found " << devices_.size() << " devices_." << std::endl;
 }
 
 void BluetoothManager::discoverDevices() {
-    DBusMessage* reply = dbus.callMethod("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
     
     if (!reply) return;
     
@@ -138,7 +147,8 @@ void BluetoothManager::discoverDevices() {
     
     dbus_message_iter_recurse(&iter, &dict_iter);
     
-    while (dbus_message_iter_get_arg_type(&dict_iter) == DBUS_TYPE_DICT_ENTRY) {
+    while (dbus_message_iter_get_arg_type(&dict_iter) == DBUS_TYPE_DICT_ENTRY) 
+    {
         DBusMessageIter entry_iter, interfaces_iter;
         const char* path;
         
@@ -147,14 +157,19 @@ void BluetoothManager::discoverDevices() {
         dbus_message_iter_next(&entry_iter);
         
         std::string pathStr(path);
-        if (pathStr.find("/org/bluez/hci") != std::string::npos && 
-            pathStr.find("/dev_") != std::string::npos) {
-            
-            if (devices.find(pathStr) == devices.end()) {
+        // if (pathStr.find("/org/bluez/hci") != std::string::npos && 
+        //     pathStr.find("/dev_") != std::string::npos) 
+        if (pathStr.find(adapterPath_) != std::string::npos && 
+            pathStr.find("/dev_") != std::string::npos)
+        {   
+            if (devices_.find(pathStr) == devices_.end()) 
+            {
                 BluetoothDevice device;
                 device.path = pathStr;
                 parseDeviceProperties(pathStr, device);
-                devices[pathStr] = device;
+                devices_[pathStr] = device;
+                std::cout << __func__ << "() found device: " << device.name 
+                          << ", " << device.address << ", " << device.path  << std::endl;
             }
         }
         
@@ -165,12 +180,12 @@ void BluetoothManager::discoverDevices() {
 }
 
 void BluetoothManager::parseDeviceProperties(const std::string& devicePath, BluetoothDevice& device) {
-    device.address = dbus.getStringProperty("org.bluez", devicePath, "org.bluez.Device1", "Address");
-    device.name = dbus.getStringProperty("org.bluez", devicePath, "org.bluez.Device1", "Name");
-    device.connected = dbus.getBoolProperty("org.bluez", devicePath, "org.bluez.Device1", "Connected");
+    device.address = dbus_.getStringProperty("org.bluez", devicePath, "org.bluez.Device1", "Address");
+    device.name = dbus_.getStringProperty("org.bluez", devicePath, "org.bluez.Device1", "Name");
+    device.connected = dbus_.getBoolProperty("org.bluez", devicePath, "org.bluez.Device1", "Connected");
     
     // Get UUIDs (services)
-    DBusMessage* reply = dbus.callMethodWithArgs("org.bluez", devicePath, "org.freedesktop.DBus.Properties", "Get",
+    DBusMessage* reply = dbus_.callMethodWithArgs("org.bluez", devicePath, "org.freedesktop.DBus.Properties", "Get",
         [](DBusMessage* msg) {
             const char* iface = "org.bluez.Device1";
             const char* prop = "UUIDs";
@@ -202,7 +217,7 @@ void BluetoothManager::parseDeviceProperties(const std::string& devicePath, Blue
 }
 
 void BluetoothManager::setDesiredServices(const std::vector<std::string>& services) {
-    desiredServices = services;
+    desiredServices_ = services;
     std::cout << "Set desired services: ";
     for (const auto& service : services) {
         std::cout << service << " ";
@@ -213,7 +228,7 @@ void BluetoothManager::setDesiredServices(const std::vector<std::string>& servic
 std::vector<BluetoothDevice> BluetoothManager::getDevicesWithDesiredServices() {
     std::vector<BluetoothDevice> filteredDevices;
     
-    for (const auto& devicePair : devices) {
+    for (const auto& devicePair : devices_) {
         if (hasDesiredService(devicePair.second)) {
             filteredDevices.push_back(devicePair.second);
         }
@@ -223,11 +238,11 @@ std::vector<BluetoothDevice> BluetoothManager::getDevicesWithDesiredServices() {
 }
 
 bool BluetoothManager::hasDesiredService(const BluetoothDevice& device) {
-    if (desiredServices.empty()) {
+    if (desiredServices_.empty()) {
         return true; // If no filter set, include all devices
     }
     
-    for (const auto& desiredService : desiredServices) {
+    for (const auto& desiredService : desiredServices_) {
         for (const auto& deviceService : device.services) {
             if (deviceService.find(desiredService) != std::string::npos) {
                 return true;
@@ -241,18 +256,18 @@ bool BluetoothManager::hasDesiredService(const BluetoothDevice& device) {
 bool BluetoothManager::connectToDevice(const std::string& devicePath) {
     std::cout << "Connecting to device: " << devicePath << std::endl;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", devicePath, "org.bluez.Device1", "Connect");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", devicePath, "org.bluez.Device1", "Connect");
     
     if (reply) {
         dbus_message_unref(reply);
         
         // Wait a bit for connection to establish
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 6; i++) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            bool connected = dbus.getBoolProperty("org.bluez", devicePath, "org.bluez.Device1", "Connected");
+            bool connected = dbus_.getBoolProperty("org.bluez", devicePath, "org.bluez.Device1", "Connected");
             if (connected) {
                 std::cout << "Successfully connected to device" << std::endl;
-                devices[devicePath].connected = true;
+                devices_[devicePath].connected = true;
                 return true;
             }
         }
@@ -265,11 +280,11 @@ bool BluetoothManager::connectToDevice(const std::string& devicePath) {
 bool BluetoothManager::disconnectFromDevice(const std::string& devicePath) {
     std::cout << "Disconnecting from device: " << devicePath << std::endl;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", devicePath, "org.bluez.Device1", "Disconnect");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", devicePath, "org.bluez.Device1", "Disconnect");
     
     if (reply) {
         dbus_message_unref(reply);
-        devices[devicePath].connected = false;
+        devices_[devicePath].connected = false;
         std::cout << "Disconnected from device" << std::endl;
         return true;
     }
@@ -280,7 +295,7 @@ bool BluetoothManager::disconnectFromDevice(const std::string& devicePath) {
 std::vector<BluetoothCharacteristic> BluetoothManager::getCharacteristics(const std::string& devicePath) {
     std::vector<BluetoothCharacteristic> characteristics;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", "/", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects");
     
     if (!reply) return characteristics;
     
@@ -335,11 +350,11 @@ std::vector<BluetoothCharacteristic> BluetoothManager::getCharacteristics(const 
 }
 
 void BluetoothManager::parseCharacteristicProperties(const std::string& charPath, BluetoothCharacteristic& characteristic) {
-    characteristic.uuid = dbus.getStringProperty("org.bluez", charPath, "org.bluez.GattCharacteristic1", "UUID");
-    characteristic.service_path = dbus.getStringProperty("org.bluez", charPath, "org.bluez.GattCharacteristic1", "Service");
+    characteristic.uuid = dbus_.getStringProperty("org.bluez", charPath, "org.bluez.GattCharacteristic1", "UUID");
+    characteristic.service_path = dbus_.getStringProperty("org.bluez", charPath, "org.bluez.GattCharacteristic1", "Service");
     
     // Get flags
-    DBusMessage* reply = dbus.callMethodWithArgs("org.bluez", charPath, "org.freedesktop.DBus.Properties", "Get",
+    DBusMessage* reply = dbus_.callMethodWithArgs("org.bluez", charPath, "org.freedesktop.DBus.Properties", "Get",
         [](DBusMessage* msg) {
             const char* iface = "org.bluez.GattCharacteristic1";
             const char* prop = "Flags";
@@ -373,11 +388,11 @@ void BluetoothManager::parseCharacteristicProperties(const std::string& charPath
 bool BluetoothManager::enableNotifications(const std::string& characteristicPath) {
     std::cout << "Enabling notifications for: " << characteristicPath << std::endl;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "StartNotify");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "StartNotify");
     
     if (reply) {
         dbus_message_unref(reply);
-        notifyingCharacteristics.insert(characteristicPath);
+        notifyingCharacteristics_.insert(characteristicPath);
         std::cout << "Notifications enabled" << std::endl;
         return true;
     }
@@ -389,11 +404,11 @@ bool BluetoothManager::enableNotifications(const std::string& characteristicPath
 bool BluetoothManager::disableNotifications(const std::string& characteristicPath) {
     std::cout << "Disabling notifications for: " << characteristicPath << std::endl;
     
-    DBusMessage* reply = dbus.callMethod("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "StopNotify");
+    DBusMessage* reply = dbus_.callMethod("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "StopNotify");
     
     if (reply) {
         dbus_message_unref(reply);
-        notifyingCharacteristics.erase(characteristicPath);
+        notifyingCharacteristics_.erase(characteristicPath);
         std::cout << "Notifications disabled" << std::endl;
         return true;
     }
@@ -404,7 +419,7 @@ bool BluetoothManager::disableNotifications(const std::string& characteristicPat
 bool BluetoothManager::writeCharacteristic(const std::string& characteristicPath, const std::vector<uint8_t>& data) {
     std::cout << "Writing to characteristic: " << characteristicPath << std::endl;
     
-    DBusMessage* reply = dbus.callMethodWithArgs("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "WriteValue",
+    DBusMessage* reply = dbus_.callMethodWithArgs("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "WriteValue",
         [&](DBusMessage* msg) {
             DBusMessageIter iter, array_iter, options_iter;
             dbus_message_iter_init_append(msg, &iter);
@@ -434,7 +449,7 @@ bool BluetoothManager::writeCharacteristic(const std::string& characteristicPath
 std::vector<uint8_t> BluetoothManager::readCharacteristic(const std::string& characteristicPath) {
     std::vector<uint8_t> data;
     
-    DBusMessage* reply = dbus.callMethodWithArgs("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "ReadValue",
+    DBusMessage* reply = dbus_.callMethodWithArgs("org.bluez", characteristicPath, "org.bluez.GattCharacteristic1", "ReadValue",
         [](DBusMessage* msg) {
             DBusMessageIter iter, options_iter;
             dbus_message_iter_init_append(msg, &iter);
@@ -464,23 +479,23 @@ std::vector<uint8_t> BluetoothManager::readCharacteristic(const std::string& cha
 }
 
 void BluetoothManager::processNotifications() {
-    dbus.processMessages(100);
+    dbus_.processMessages(100);
 }
 
 void BluetoothManager::setNotificationCallback(std::function<void(const std::string&, const std::vector<uint8_t>&)> callback) {
-    notificationCallback = callback;
+    notificationCallback_ = callback;
 }
 
 std::vector<BluetoothDevice> BluetoothManager::getAllDevices() {
     std::vector<BluetoothDevice> deviceList;
-    for (const auto& devicePair : devices) {
+    for (const auto& devicePair : devices_) {
         deviceList.push_back(devicePair.second);
     }
     return deviceList;
 }
 
 void BluetoothManager::updateDeviceInfo() {
-    for (auto& devicePair : devices) {
+    for (auto& devicePair : devices_) {
         parseDeviceProperties(devicePair.first, devicePair.second);
     }
 }

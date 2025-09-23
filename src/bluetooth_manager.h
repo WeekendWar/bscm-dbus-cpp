@@ -62,13 +62,13 @@ public:
     void updateDeviceInfo();
 
 private:
-    DBusHelper dbus;
-    std::vector<std::string> desiredServices;
-    std::map<std::string, BluetoothDevice> devices;
-    std::set<std::string> notifyingCharacteristics;
-    std::function<void(const std::string&, const std::vector<uint8_t>&)> notificationCallback;
+    DBusHelper dbus_;
+    std::vector<std::string> desiredServices_;
+    std::map<std::string, BluetoothDevice> devices_;
+    std::set<std::string> notifyingCharacteristics_;
+    std::function<void(const std::string&, const std::vector<uint8_t>&)> notificationCallback_;
     
-    std::string adapterPath;
+    std::string adapterPath_;
     
     bool findAdapter();
     void discoverDevices();
