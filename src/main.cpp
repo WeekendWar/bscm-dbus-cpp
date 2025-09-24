@@ -6,7 +6,8 @@
 #include <thread>
 #include "bluetooth_manager.h"
 
-const uint32_t SCAN_SECONDS = 5;
+const uint32_t    SCAN_SECONDS                    = 5;
+const std::string BM_DATA_CTL_SERVICE_UUID_32_BIT = "15451545";
 
 void printDeviceInfo(const BluetoothDevice& device, int index)
 {
@@ -158,15 +159,16 @@ int main()
 
   while (true)
   {
-    std::cout << "\n=== Main Menu ===" << std::endl;
-    std::cout << "1. Scan for devices" << std::endl;
-    std::cout << "2. Set service filter" << std::endl;
-    std::cout << "3. List devices with desired services" << std::endl;
-    std::cout << "4. Connect to device" << std::endl;
-    std::cout << "5. Disconnect from device" << std::endl;
-    std::cout << "6. Manage characteristics" << std::endl;
-    std::cout << "7. Process notifications" << std::endl;
-    std::cout << "0. Exit" << std::endl;
+    std::cout << "\n=== Main Menu ===" << std::endl
+              << "1. Scan for devices" << std::endl
+              << "2. Set service filter" << std::endl
+              << "3. List devices with desired services" << std::endl
+              << "4. List BSCM devices" << std::endl
+              << "5. Connect to device" << std::endl
+              << "6. Disconnect from device" << std::endl
+              << "7. Manage characteristics" << std::endl
+              << "8. Process notifications" << std::endl
+              << "0. Exit" << std::endl;
 
     int choice = getUserChoice(7);
 
@@ -242,6 +244,30 @@ int main()
 
       case 4:
       {
+        // Clear all existing services
+        manager.setDesiredServices({});
+
+        // Set the BSCM Data Control Service UUID
+        manager.setDesiredServices({BM_DATA_CTL_SERVICE_UUID_32_BIT});
+
+        auto devices = manager.getDevicesWithDesiredServices();
+        std::cout << "\nList Boot Modules:" << std::endl;
+        if (devices.empty())
+        {
+          std::cout << "No Boot Modules found" << std::endl;
+        }
+        else
+        {
+          for (size_t i = 0; i < devices.size(); i++)
+          {
+            printDeviceInfo(devices[i], i);
+          }
+        }
+        break;
+      }
+
+      case 5:
+      {
         auto devices = manager.getAllDevices();
         if (devices.empty())
         {
@@ -263,7 +289,7 @@ int main()
         break;
       }
 
-      case 5:
+      case 6:
       {
         auto                         devices = manager.getAllDevices();
         std::vector<BluetoothDevice> connectedDevices;
@@ -295,7 +321,7 @@ int main()
         break;
       }
 
-      case 6:
+      case 7:
       {
         auto                         devices = manager.getAllDevices();
         std::vector<BluetoothDevice> connectedDevices;
@@ -403,7 +429,7 @@ int main()
         break;
       }
 
-      case 7:
+      case 8:
       {
         std::cout << "\nProcessing notifications for 10 seconds..."
                   << std::endl;
